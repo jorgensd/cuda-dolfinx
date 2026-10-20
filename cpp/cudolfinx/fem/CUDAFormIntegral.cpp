@@ -13,6 +13,8 @@
 #include <dolfinx/mesh/Mesh.h>
 #include <ufcx.h>
 #include <cuda.h>
+#include <functional>
+#include <sstream>
 #include <cudolfinx/fem/CUDAFormIntegral.h>
 #include <cudolfinx/common/CUDA.h>
 #include <cudolfinx/fem/CUDADirichletBC.h>
@@ -2436,15 +2438,20 @@ CUDA::Module dolfinx::fem::compile_form_integral_kernel(
     factory_name = factory_name.replace(0, pref.length(), std::string(""));
   }
 
-  auto ptxfile = std::filesystem::path(cachedir) / (factory_name + ".ptx");
+  std::string assembly_kernel_src = get_form_integral_kernel_src(
+    form_rank, integral_type, tabulate_tensor_source, factory_name, max_threads_per_block,
+    min_blocks_per_multiprocessor, num_vertices_per_cell, num_coordinates_per_vertex,
+    num_dofs_per_cell0, num_dofs_per_cell1, num_coeffs_per_cell,
+    assembly_kernel_type
+  );
+
+  // Key the cache on the generated source as well as the integral name, so
+  // that changes to the kernel generator do not reuse stale PTX.
+  std::ostringstream src_hash;
+  src_hash << std::hex << std::hash<std::string>{}(assembly_kernel_src);
+  auto ptxfile = std::filesystem::path(cachedir)
+    / (factory_name + "_" + src_hash.str() + ".ptx");
   if (!std::filesystem::exists(ptxfile)) {
-    
-    std::string assembly_kernel_src = get_form_integral_kernel_src(
-      form_rank, integral_type, tabulate_tensor_source, factory_name, max_threads_per_block,
-      min_blocks_per_multiprocessor, num_vertices_per_cell, num_coordinates_per_vertex,
-      num_dofs_per_cell0, num_dofs_per_cell1, num_coeffs_per_cell,
-      assembly_kernel_type
-    );
 
     // Obtain the automatically generated CUDA C++ code for the
     // element matrix kernel (tabulate_tensor).

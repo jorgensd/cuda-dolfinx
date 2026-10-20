@@ -468,6 +468,8 @@ public:
     , _assembly_kernel_type()
     , _assembly_kernel()
     , _lift_bc_kernel()
+    , _delement_values(0)
+    , _dscalar_value(0)
   {
   }
 
@@ -493,6 +495,8 @@ public:
     , _assembly_kernel_type(ASSEMBLY_KERNEL_GLOBAL)
     , _assembly_kernel()
     , _lift_bc_kernel()
+    , _delement_values(0)
+    , _dscalar_value(0)
   {
     CUresult cuda_err;
     const char * cuda_err_description;
@@ -574,6 +578,8 @@ public:
     , _assembly_kernel_type(form_integral._assembly_kernel_type)
     , _assembly_kernel(form_integral._assembly_kernel)
     , _lift_bc_kernel(form_integral._lift_bc_kernel)
+    , _delement_values(form_integral._delement_values)
+    , _dscalar_value(form_integral._dscalar_value)
   {
     form_integral._integral_type = IntegralType::cell;
     form_integral._id = 0;
@@ -587,6 +593,8 @@ public:
     form_integral._assembly_kernel_type = ASSEMBLY_KERNEL_GLOBAL;
     form_integral._assembly_kernel = 0;
     form_integral._lift_bc_kernel = 0;
+    form_integral._delement_values = 0;
+    form_integral._dscalar_value = 0;
   }
   //-----------------------------------------------------------------------------
   CUDAFormIntegral<T,U>& operator=(CUDAFormIntegral<T,U>&& form_integral)
@@ -605,6 +613,8 @@ public:
     _assembly_kernel_type = form_integral._assembly_kernel_type;
     _assembly_kernel = form_integral._assembly_kernel;
     _lift_bc_kernel = form_integral._lift_bc_kernel;
+    _delement_values = form_integral._delement_values;
+    _dscalar_value = form_integral._dscalar_value;
     form_integral._integral_type = IntegralType::cell;
     form_integral._id = 0;
     form_integral._rank = 0;
@@ -617,6 +627,8 @@ public:
     form_integral._assembly_kernel_type = ASSEMBLY_KERNEL_GLOBAL;
     form_integral._assembly_kernel = 0;
     form_integral._lift_bc_kernel = 0;
+    form_integral._delement_values = 0;
+    form_integral._dscalar_value = 0;
     return *this;
   }
 
@@ -1060,14 +1072,20 @@ public:
       &dvertex_indices_per_cell,
       &num_coordinates_per_vertex,
       &dvertex_coordinates});
+    // These must outlive the kernel launch: kernel_parameters stores their
+    // addresses, so they cannot be declared inside the `if` block below.
+    std::int32_t num_mesh_entities_per_cell = 0;
+    CUdeviceptr dfacet_permutations = 0;
+    CUdeviceptr coefficient_values_offsets = 0;
+    std::int32_t num_coefficients = 0;
     if (interior)
     {
       std::int32_t tdim = mesh.tdim();
       const dolfinx::mesh::CUDAMeshEntities<U>& facets = mesh.mesh_entities()[tdim-1];
-      std::int32_t num_mesh_entities_per_cell = facets.num_mesh_entities_per_cell();
-      CUdeviceptr dfacet_permutations = facets.mesh_entity_permutations();
-      CUdeviceptr coefficient_values_offsets = coefficients.coefficient_values_offsets();
-      std::int32_t num_coefficients = coefficients.num_coefficients();
+      num_mesh_entities_per_cell = facets.num_mesh_entities_per_cell();
+      dfacet_permutations = facets.mesh_entity_permutations();
+      coefficient_values_offsets = coefficients.coefficient_values_offsets();
+      num_coefficients = coefficients.num_coefficients();
       kernel_parameters.insert(kernel_parameters.end(), {
       &num_mesh_entities_per_cell,
       &dfacet_permutations,
