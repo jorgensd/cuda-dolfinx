@@ -88,12 +88,36 @@ Mat dolfinx::la::petsc::create_cuda_matrix(
           bs[1] * col_ghosts[diff / bs[1]] + diff % bs[1];
     }
   }
-  MatCreateMPIAIJWithArrays(comm, m, n, M, N, _row_ptr.data(),
-                            global_column_indices.data(), nullptr, &A);
-  // Change matrix type to CUDA
-  ierr = MatSetType(A, MATMPIAIJCUSPARSE);
+
+ // 1. Create matrix and set sizes + type directly
+  ierr = MatCreate(comm, &A);
+  if (ierr != 0)
+    petsc::error(ierr, __FILE__, "MatCreate");
+
+  ierr = MatSetSizes(A, m, n, M, N);
+  if (ierr != 0)
+    petsc::error(ierr, __FILE__, "MatSetSizes");
+
+  ierr = MatSetType(A, MATAIJCUSPARSE);
   if (ierr != 0)
     petsc::error(ierr, __FILE__, "MatSetType");
+
+  // 2. Preallocate passing the custom CSR graph directly
+  PetscMPIInt comm_size;
+  MPI_Comm_size(comm, &comm_size);
+
+  if (comm_size == 1) {
+    ierr = MatSeqAIJSetPreallocationCSR(A, _row_ptr.data(),
+                                        global_column_indices.data(), nullptr);
+    if (ierr != 0)
+      petsc::error(ierr, __FILE__, "MatSeqAIJSetPreallocationCSR");
+  } else {
+    std::vector<PetscScalar> zeros(global_column_indices.size(), 0.0);
+    ierr = MatMPIAIJSetPreallocationCSR(A, _row_ptr.data(),
+                                        global_column_indices.data(), zeros.data());
+    if (ierr != 0)
+      petsc::error(ierr, __FILE__, "MatMPIAIJSetPreallocationCSR");
+  }
 
   // Set block sizes
   ierr = MatSetBlockSizes(A, 1, 1);
@@ -109,7 +133,7 @@ Mat dolfinx::la::petsc::create_cuda_matrix(
   for (size_t i = 0; i < map0.size(); i++)
     for (size_t j = 0; j < bs[0]; j++)
       _map0[i * bs[0] + j] = map0[i] * bs[0] + j;
-  // const std::vector<PetscInt> _map0(map0.begin(), map0.end());
+  
   ierr =
       ISLocalToGlobalMappingCreate(MPI_COMM_SELF, 1, _map0.size(), _map0.data(),
                                    PETSC_COPY_VALUES, &local_to_global0);
@@ -130,7 +154,7 @@ Mat dolfinx::la::petsc::create_cuda_matrix(
     for (size_t i = 0; i < map1.size(); i++)
       for (size_t j = 0; j < bs[1]; j++)
         _map1[i * bs[1] + j] = map1[i] * bs[1] + j;
-    // const std::vector<PetscInt> _map1(map1.begin(), map1.end());
+    
     ierr = ISLocalToGlobalMappingCreate(MPI_COMM_SELF, 1, _map1.size(),
                                         _map1.data(), PETSC_COPY_VALUES,
                                         &local_to_global1);
