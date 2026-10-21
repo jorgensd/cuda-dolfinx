@@ -5,6 +5,7 @@
 # SPDX-License-Identifier:    LGPL-3.0-or-later
 
 from mpi4py import MPI
+from dolfinx.fem import petsc as fe_petsc
 
 import numpy as np
 
@@ -72,10 +73,10 @@ def make_ufl(domain=None):
 def compare_mats(matcsr, matpetsc):
     """Compare a native FEniCS MatrixCSR to a PETSc matrix."""
     _indptr, _indices, data = matpetsc.getValuesCSR()
-    assert np.allclose(matcsr.data, data)
+    np.testing.assert_allclose(matcsr.data, data)
 
 def compare_vecs(vecfenics, vecpetsc):
-    assert np.allclose(vecfenics.array, vecpetsc.array)
+    np.testing.assert_allclose(vecfenics.array, vecpetsc.array)
 
 def test_cuda_assembly():
     """Check assembly on GPU."""
@@ -87,7 +88,7 @@ def test_cuda_assembly():
         cuda_form = cufem.form(form)
         value1 = fe.assemble_scalar(fenics_form)
         value2 = asm.assemble_scalar(cuda_form)
-        assert np.allclose(value1, value2)
+        np.testing.assert_allclose(value1, value2)
 
     for i, form in enumerate(ufl_forms['vector']):
         f = fe.form(form)
@@ -161,8 +162,8 @@ def test_block_assembly():
     vec_cuda = asm.create_vector_block(cuda_L)
     asm.assemble_vector_block(cuda_L, vec_cuda)
 
-    vec_fe = fe.petsc.create_vector([V1, V2])
-    fe.petsc.assemble_vector(vec_fe, cuda_L.dolfinx_forms)
+    vec_fe = fe_petsc.create_vector([V1, V2])
+    fe_petsc.assemble_vector(vec_fe, cuda_L.dolfinx_forms)
     compare_vecs(vec_fe, vec_cuda.vector)
 
 def test_diagonal_assembly():
